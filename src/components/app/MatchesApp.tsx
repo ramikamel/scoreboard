@@ -12,8 +12,6 @@ import { Plus, Trophy, X } from 'lucide-react';
 interface GameMode {
   id: string;
   name: string;
-  team_count: number;
-  team_size: number;
 }
 
 interface Team {
@@ -76,7 +74,7 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
     try {
       const { data, error } = await supabase
         .from('game_modes')
-        .select('id, name, team_count, team_size')
+        .select('id, name')
         .eq('group_id', selectedGroupId);
 
       if (error) throw error;
