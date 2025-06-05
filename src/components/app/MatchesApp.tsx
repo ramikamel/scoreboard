@@ -17,7 +17,7 @@ interface GameMode {
 interface Team {
   number: number;
   players: string[];
-  score: number;
+  score: string;
 }
 
 interface Match {
@@ -28,6 +28,11 @@ interface Match {
     team_number: number;
     score: number;
     is_winner: boolean;
+  }>;
+  match_players: Array<{
+    team_number: number;
+    user_id: string;
+    users: { username: string };
   }>;
 }
 
@@ -60,10 +65,10 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
 
   useEffect(() => {
     if (selectedGameModeId) {
-      // Initialize with 2 teams by default
+      // Initialize with 2 teams by default, each with 1 empty player slot
       setTeams([
-        { number: 1, players: [], score: 0 },
-        { number: 2, players: [], score: 0 }
+        { number: 1, players: [''], score: '' },
+        { number: 2, players: [''], score: '' }
       ]);
     }
   }, [selectedGameModeId]);
@@ -139,7 +144,16 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
           id,
           played_at,
           game_modes!inner(name, group_id),
-          match_teams(team_number, score, is_winner)
+          match_teams(
+            team_number, 
+            score, 
+            is_winner
+          ),
+          match_players(
+            team_number,
+            user_id,
+            users(username)
+          )
         `)
         .eq('game_modes.group_id', selectedGroupId)
         .order('played_at', { ascending: false });
@@ -161,12 +175,29 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
   const submitMatch = async () => {
     if (!selectedGameModeId || !user || teams.length === 0) return;
 
-    // Validate that all teams have players and scores
-    const hasEmptyTeams = teams.some(team => team.players.length === 0 || team.players.some(p => !p));
+    // Validate that all teams have at least one player with a valid selection
+    const hasEmptyTeams = teams.some(team => {
+      const validPlayers = team.players.filter(p => p && p.trim() !== '');
+      return validPlayers.length === 0;
+    });
     if (hasEmptyTeams) {
       toast({
         title: "Error",
-        description: "Please add players to all teams",
+        description: "Please add at least one player to each team",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate that all teams have valid scores
+    const hasInvalidScores = teams.some(team => {
+      const score = parseFloat(team.score);
+      return isNaN(score) || team.score.trim() === '';
+    });
+    if (hasInvalidScores) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid score for each team",
         variant: "destructive"
       });
       return;
@@ -188,14 +219,15 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
       if (matchError) throw matchError;
 
       // Determine winner (highest score)
-      const maxScore = Math.max(...teams.map(team => team.score));
-      const winnerTeams = teams.filter(team => team.score === maxScore).map(team => team.number);
+      const teamScores = teams.map(team => parseFloat(team.score));
+      const maxScore = Math.max(...teamScores);
+      const winnerTeams = teams.filter(team => parseFloat(team.score) === maxScore).map(team => team.number);
 
       // Create match teams
       const matchTeamsData = teams.map((team) => ({
         match_id: match.id,
         team_number: team.number,
-        score: team.score,
+        score: parseFloat(team.score),
         is_winner: winnerTeams.includes(team.number)
       }));
 
@@ -205,13 +237,15 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
 
       if (teamsError) throw teamsError;
 
-      // Create match players
+      // Create match players (only for players that are actually selected)
       const matchPlayersData = teams.flatMap(team => 
-        team.players.map(playerId => ({
-          match_id: match.id,
-          team_number: team.number,
-          user_id: playerId
-        }))
+        team.players
+          .filter(playerId => playerId && playerId.trim() !== '') // Only include selected players
+          .map(playerId => ({
+            match_id: match.id,
+            team_number: team.number,
+            user_id: playerId
+          }))
       );
 
       const { error: playersError } = await supabase
@@ -243,7 +277,7 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
 
   const addTeam = () => {
     const newTeamNumber = teams.length + 1;
-    setTeams([...teams, { number: newTeamNumber, players: [], score: 0 }]);
+    setTeams([...teams, { number: newTeamNumber, players: [''], score: '' }]);
   };
 
   const removeTeam = (teamNumber: number) => {
@@ -280,7 +314,7 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
     ));
   };
 
-  const updateTeamScore = (teamNumber: number, score: number) => {
+  const updateTeamScore = (teamNumber: number, score: string) => {
     setTeams(teams.map(team => 
       team.number === teamNumber 
         ? { ...team, score }
@@ -365,42 +399,55 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
                       <div>
                         <Label className="text-sm font-medium">Players</Label>
                         <div className="space-y-2 mt-2">
-                          {team.players.map((playerId, playerIndex) => (
-                            <div key={playerIndex} className="flex gap-2">
-                              <Select 
-                                value={playerId} 
-                                onValueChange={(value) => updatePlayerInTeam(team.number, playerIndex, value)}
-                              >
-                                <SelectTrigger className="flex-1">
-                                  <SelectValue placeholder="Select player" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {groupUsers.map((user) => (
-                                    <SelectItem key={user.id} value={user.id}>
-                                      {user.username}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button 
-                                type="button" 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => removePlayerFromTeam(team.number, playerIndex)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
+                          {team.players.map((playerId, playerIndex) => {
+                            // Get all already selected players across all teams
+                            const allSelectedPlayers = teams.flatMap(t => 
+                              t.players.filter(p => p && p.trim() !== '')
+                            );
+                            
+                            // Filter out players that are already selected (except the current one)
+                            const availableUsers = groupUsers.filter(user => {
+                              const isCurrentSelection = user.id === playerId;
+                              const isAlreadySelected = allSelectedPlayers.includes(user.id);
+                              return isCurrentSelection || !isAlreadySelected;
+                            });
+
+                            return (
+                              <div key={playerIndex} className="flex gap-2">
+                                <Select 
+                                  value={playerId} 
+                                  onValueChange={(value) => updatePlayerInTeam(team.number, playerIndex, value)}
+                                >
+                                  <SelectTrigger className="flex-1">
+                                    <SelectValue placeholder="Select player" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableUsers.map((user) => (
+                                      <SelectItem key={user.id} value={user.id}>
+                                        {user.username}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => removePlayerFromTeam(team.number, playerIndex)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            );
+                          })}
                           <Button 
                             type="button" 
                             variant="outline" 
                             size="sm" 
                             onClick={() => addPlayerToTeam(team.number)}
-                            className="w-full"
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Add Another Player
+                            Add Player
                           </Button>
                         </div>
                       </div>
@@ -413,7 +460,7 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
                           type="number"
                           min="0"
                           value={team.score}
-                          onChange={(e) => updateTeamScore(team.number, parseInt(e.target.value) || 0)}
+                          onChange={(e) => updateTeamScore(team.number, e.target.value)}
                           placeholder="Enter score"
                           className="mt-1"
                         />
@@ -452,24 +499,46 @@ export const MatchesApp = ({ selectedGroupId }: MatchesAppProps) => {
             {matches.map((match) => (
               <Card key={match.id}>
                 <CardContent className="p-4">
-                  <div className="flex justify-between items-center mb-2">
+                  <div className="flex justify-between items-center mb-4">
                     <h4 className="font-semibold">{match.game_modes.name}</h4>
                     <span className="text-sm text-gray-600">
                       {new Date(match.played_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <div className="flex gap-4">
+                  <div className="space-y-4">
                     {match.match_teams
                       .sort((a, b) => a.team_number - b.team_number)
-                      .map((team) => (
-                      <div key={team.team_number} className="text-center">
-                        <div className={`font-bold ${team.is_winner ? 'text-green-600' : 'text-gray-600'}`}>
-                          Team {team.team_number}
-                        </div>
-                        <div className="text-lg">{team.score}</div>
-                        {team.is_winner && <div className="text-xs text-green-600">Winner</div>}
-                      </div>
-                    ))}
+                      .map((team) => {
+                        // Get players for this team
+                        const teamPlayers = match.match_players
+                          .filter(player => player.team_number === team.team_number)
+                          .map(player => player.users.username || 'Unknown');
+                        
+                        return (
+                          <div key={team.team_number} className="border rounded-lg p-3">
+                            <div className="flex justify-between items-center mb-2">
+                              <div className={`font-semibold ${team.is_winner ? 'text-green-600' : 'text-gray-700'}`}>
+                                Team {team.team_number}
+                                {team.is_winner && <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Winner</span>}
+                              </div>
+                              <div className={`text-xl font-bold ${team.is_winner ? 'text-green-600' : 'text-gray-700'}`}>
+                                {team.score}
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {teamPlayers.length > 0 ? (
+                                <div className="space-y-1">
+                                  {teamPlayers.map((playerName, index) => (
+                                    <div key={index}>{playerName}</div>
+                                  ))}
+                                </div>
+                              ) : (
+                                'No players'
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </CardContent>
               </Card>
