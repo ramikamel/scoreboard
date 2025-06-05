@@ -64,7 +64,7 @@ export const Header = () => {
                   size="sm" 
                   onClick={handleGoToApp}
                 >
-                  My App
+                  Enter Scores
                 </Button>
                 <Button 
                   variant="outline" 
