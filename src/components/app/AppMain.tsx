@@ -24,14 +24,14 @@ export const AppMain = () => {
   return (
     <div className="py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-8">
+        {/* <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">
             The Scoreboard
           </h1>
           <p className="text-xl text-gray-600">
             Manage your groups, games, and track results
           </p>
-        </div>
+        </div> */}
 
         <Card className="max-w-6xl mx-auto shadow-2xl border-0">
           <CardHeader className="bg-gradient-to-r from-blue-600 to-green-600 text-white rounded-t-lg">
